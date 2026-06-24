@@ -32,6 +32,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import subprocess
 import sys
 from typing import Any, Optional
@@ -87,8 +88,7 @@ def check_requirements() -> bool:
 # ---------------------------------------------------------------------------
 def _import_sdk():
     from miti_agent_sdk import MitiAgent
-    from miti_agent_sdk.models import AgentEvent, GroupAtEvent, MessageEvent
-    return MitiAgent, AgentEvent, GroupAtEvent, MessageEvent
+    return MitiAgent
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +172,7 @@ class MitiAdapter(BasePlatformAdapter):
             )
             return False
 
-        MitiAgent, AgentEvent, GroupAtEvent, MessageEvent = _import_sdk()
+        MitiAgent = _import_sdk()
 
         kwargs: dict[str, Any] = {
             "app_id": self.app_id,
@@ -181,7 +181,12 @@ class MitiAdapter(BasePlatformAdapter):
         if self.api_base_url:
             kwargs["base_url"] = self.api_base_url
 
-        self._miti_agent = MitiAgent(**kwargs)
+        try:
+            self._miti_agent = MitiAgent(**kwargs)
+        except ValueError as exc:
+            logger.error("miti-platform: %s", exc)
+            self._set_fatal_error("tls_required", str(exc), retryable=False)
+            return False
 
         # Register inbound event handlers
         self._miti_agent.on_message(self._on_single_chat)
@@ -202,23 +207,30 @@ class MitiAdapter(BasePlatformAdapter):
     async def _run_agent(self) -> None:
         """Run the MitiAgent until cancelled or a fatal error occurs."""
         try:
-            await self._miti_agent.run_async()
+            await self._miti_agent.run_async(register_signals=False)
         except asyncio.CancelledError:
             logger.info("miti-platform: gateway task cancelled")
         except Exception as exc:
             logger.error("miti-platform: gateway task crashed: %s", exc, exc_info=True)
 
     async def disconnect(self) -> None:
-        """Stop the WebSocket task and clean up SDK resources."""
+        """Stop the WebSocket task and clean up SDK resources.
+
+        Cancelling the gateway task triggers ``run_async``'s finally block,
+        which calls ``MitiAgent.close()`` internally — no need to call it
+        again here.  We only call ``close()`` explicitly when the task
+        already finished on its own (e.g. fatal error) but ``disconnect``
+        was not yet called.
+        """
         if self._gateway_task and not self._gateway_task.done():
             self._gateway_task.cancel()
             try:
                 await asyncio.wait_for(self._gateway_task, timeout=5.0)
             except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
-        if self._miti_agent:
+        elif self._miti_agent:
             try:
-                await self._miti_agent._close()
+                await self._miti_agent.close()
             except Exception as exc:
                 logger.warning("miti-platform: error during agent close: %s", exc)
         logger.info("miti-platform: disconnected")
@@ -322,6 +334,9 @@ class MitiAdapter(BasePlatformAdapter):
         if not self._miti_agent:
             logger.error("miti-platform: send() called before connect()")
             return SendResult(success=False)
+        if self._gateway_task and self._gateway_task.done():
+            logger.error("miti-platform: send() called but gateway task has exited")
+            return SendResult(success=False)
 
         try:
             if chat_id.startswith(_GROUP_PREFIX):
@@ -389,8 +404,6 @@ def _extract_text(message) -> str:
     if msg_type == "at_text":
         # at_text content: {"text": "@BotName actual message", "atUserList": [...]}
         raw = content.get("text", "")
-        # Strip leading @mention tokens (format: "@SomeNick ")
-        import re
         text = re.sub(r"^(@\S+\s*)+", "", raw).strip()
         return text
 
