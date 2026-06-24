@@ -1,0 +1,46 @@
+name: miti-platform
+label: Miti
+kind: platform
+version: 0.1.0
+description: >
+  Miti IM platform adapter for Hermes Agent.
+  Connects via outbound WebSocket long-connection (miti-agent-sdk>=0.1.0).
+  Supports single-chat direct messages and group @mention routing.
+  No public webhook endpoint required.
+author: Miti Team
+# Python package dependency — installed automatically on first gateway start.
+# To update: pip install --upgrade miti-agent-sdk && hermes gateway restart
+dependencies:
+  - miti-agent-sdk>=0.1.0
+
+requires_env:
+  - name: MITI_APP_ID
+    description: "Agent App ID — create one at Miti Discovery page (连接智能体)"
+    prompt: "Miti App ID"
+    password: false
+
+  - name: MITI_APP_SECRET
+    description: "Agent App Secret — view it anytime on the agent detail page"
+    prompt: "Miti App Secret"
+    password: true
+
+optional_env:
+  - name: MITI_API_BASE_URL
+    description: "Miti API base URL (default: https://www.miti.chat/chat — override for local dev)"
+    prompt: "Miti API Base URL (optional)"
+    password: false
+
+  - name: MITI_ALLOWED_USERS
+    description: "Comma-separated Miti user IDs allowed to chat with the bot; empty = allow all"
+    prompt: "Allowed user IDs (comma-separated, or empty)"
+    password: false
+
+  - name: MITI_ALLOW_ALL_USERS
+    description: "Allow any Miti user to chat with the bot (dev only — disables allowlist)"
+    prompt: "Allow all users? (true/false)"
+    password: false
+
+  - name: MITI_HOME_CHANNEL
+    description: "Default Miti user ID for cron / notification delivery"
+    prompt: "Home channel user ID (optional)"
+    password: false
