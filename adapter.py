@@ -292,6 +292,11 @@ class MitiAdapter(BasePlatformAdapter):
                     log_label,
                     chat_id,
                 )
+                await self.send(
+                    chat_id,
+                    "Sorry, I couldn't download the image. Please try again or resend it.",
+                    reply_to=msg_id or None,
+                )
                 return
 
         source = self.build_source(

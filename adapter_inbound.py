@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
+import os
 import re
 from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,7 @@ async def download_images_to_cache(
     mime_types: list[str],
 ) -> tuple[list[str], list[str]]:
     """Download remote image URLs into Hermes local image cache."""
-    from gateway.platforms.base import cache_image_from_url
+    from gateway.platforms.base import cache_image_from_bytes, cache_image_from_url
 
     paths: list[str] = []
     types: list[str] = []
@@ -93,7 +94,12 @@ async def download_images_to_cache(
         mime = mime_types[i] if i < len(mime_types) else "image/jpeg"
         ext = _mime_to_ext(mime)
         try:
-            path = await asyncio.to_thread(cache_image_from_url, url, ext)
+            if _is_trusted_miti_image_url(url):
+                # Miti CDN/API hosts often resolve to 198.18.x (Clash fake-ip);
+                # Hermes SSRF blocks those via cache_image_from_url.
+                path = await _download_trusted_miti_image(url, ext, cache_image_from_bytes)
+            else:
+                path = await cache_image_from_url(url, ext)
             paths.append(path)
             types.append(mime)
             logger.debug("miti-platform: cached image %s -> %s", url[:80], path)
@@ -102,6 +108,39 @@ async def download_images_to_cache(
                 "miti-platform: failed to cache image %s: %s", url[:80], exc
             )
     return paths, types
+
+
+def _miti_api_host() -> str:
+    base = (os.getenv("MITI_API_BASE_URL") or "").strip()
+    if not base:
+        return ""
+    return (urlparse(base).hostname or "").lower()
+
+
+def _is_trusted_miti_image_url(url: str) -> bool:
+    """True for Miti object/CDN URLs we intentionally fetch for vision."""
+    host = (urlparse(url).hostname or "").lower().rstrip(".")
+    if not host:
+        return False
+    if host == "miti.chat" or host.endswith(".miti.chat"):
+        return True
+    api_host = _miti_api_host()
+    return bool(api_host and host == api_host)
+
+
+async def _download_trusted_miti_image(url: str, ext: str, cache_fn) -> str:
+    import httpx
+
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        response = await client.get(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (compatible; HermesAgent/1.0; MitiPlatform)",
+                "Accept": "image/*,*/*;q=0.8",
+            },
+        )
+        response.raise_for_status()
+        return cache_fn(response.content, ext)
 
 
 def _mime_to_ext(mime: str) -> str:

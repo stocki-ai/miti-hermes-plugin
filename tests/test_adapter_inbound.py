@@ -1,10 +1,12 @@
 """Tests for multimodal inbound parsing."""
 
+import inspect
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import adapter_inbound as adapter_inbound_mod
 from adapter_inbound import (
     DEFAULT_IMAGE_PROMPT,
     DEFAULT_IMAGES_PROMPT,
@@ -62,3 +64,22 @@ def test_text_only_still_works():
     payload = parse_inbound_message(msg)
     assert payload.text == "hello"
     assert not payload.has_images
+
+
+def test_download_images_uses_direct_await():
+    """cache_image_from_url is async; must not be wrapped in asyncio.to_thread."""
+    src = inspect.getsource(adapter_inbound_mod.download_images_to_cache)
+    assert "await cache_image_from_url" in src
+    assert "to_thread" not in src
+
+
+def test_trusted_miti_image_url():
+    assert adapter_inbound_mod._is_trusted_miti_image_url(
+        "https://t1.miti.chat/api/object/u1/pic.jpg"
+    )
+    assert adapter_inbound_mod._is_trusted_miti_image_url(
+        "https://www.miti.chat/api/object/u1/pic.jpg"
+    )
+    assert not adapter_inbound_mod._is_trusted_miti_image_url(
+        "https://evil.example.com/pic.jpg"
+    )

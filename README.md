@@ -67,6 +67,10 @@ Miti user receives reply
 Pure image messages (no user text) use default prompts: single image
 `请描述这张图片的内容。`; multiple images `请描述这些图片的内容。`
 
+**Image download:** Miti object URLs (`*.miti.chat`) are fetched via a trusted
+download path (bypasses Hermes SSRF when DNS resolves to Clash fake-ip
+`198.18.x`). Other CDN URLs still use Hermes `cache_image_from_url`.
+
 ### chat_id convention
 
 | Context | chat_id format | Example |
