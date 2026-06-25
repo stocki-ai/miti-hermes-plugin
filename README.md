@@ -13,6 +13,7 @@ long-connection. No public webhook endpoint required.
 | Direct messages (single-chat) | ✅ |
 | Group @mention routing | ✅ |
 | Image receive (`image` / `multimodal`, vision) | ✅ |
+| Voice receive (server STT → text) | ✅ |
 | Markdown reply (`stream_full` / 125) | ✅ |
 | Typing indicator | — (Miti has none) |
 | Image / file send (outbound) | Not supported |
