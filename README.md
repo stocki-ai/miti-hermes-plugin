@@ -18,7 +18,8 @@ long-connection. No public webhook endpoint required.
 | Typing indicator | — (Miti has none) |
 | Image / file send (outbound) | Not supported |
 | Cron / notification delivery | ✅ (via `MITI_HOME_CHANNEL`) |
-| Allowlist by user ID | ✅ |
+| Allowlist by user ID | ✅ (plugin layer; single-chat) |
+| Group @ without per-user Hermes pairing | ✅ (auto from pairing file) |
 
 ## Installation
 
@@ -46,9 +47,33 @@ hermes gateway run
 | `MITI_APP_ID` | ✅ | Agent App ID (from Miti → 连接智能体) |
 | `MITI_APP_SECRET` | ✅ | Agent App Secret |
 | `MITI_API_BASE_URL` | — | API base URL (default: `https://www.miti.chat/chat`) |
-| `MITI_ALLOWED_USERS` | — | Comma-separated user IDs; empty = allow all |
-| `MITI_ALLOW_ALL_USERS` | — | `true` to disable allowlist (dev only) |
+| `MITI_OWNER_USER_ID` | — | Optional override for group @ Gateway auth. If unset, the plugin uses the **only** user in `~/.hermes/pairing/miti-approved.json`. |
+| `MITI_ALLOWED_USERS` | — | Plugin-layer allowlist (comma-separated); empty = allow all. Skipped for group @ when a group auth user is resolved. |
+| `MITI_ALLOW_ALL_USERS` | — | `true` skips Hermes pairing for **all** Miti traffic (dev); makes group auth user unnecessary |
 | `MITI_HOME_CHANNEL` | — | Default user ID for cron notifications |
+
+### Group @ without `MITI_OWNER_USER_ID`
+
+You do **not** need to set `MITI_OWNER_USER_ID` if either:
+
+1. **Exactly one** Miti user is Hermes-paired (`hermes pairing approve miti …`) — the plugin auto-reads that user for group @ auth, or
+2. **`MITI_ALLOW_ALL_USERS=true`** — Hermes pairing is skipped entirely.
+
+Typical new-agent setup:
+
+```bash
+# 1. Configure credentials
+export MITI_APP_ID="..."
+export MITI_APP_SECRET="..."
+
+# 2. Pair once (single DM to bot → approve code)
+hermes pairing approve miti <code>
+
+# 3. Restart — group @ works for all members, no MITI_OWNER_USER_ID needed
+hermes gateway restart
+```
+
+Override with `MITI_OWNER_USER_ID` only when **multiple** users are paired and you need to pick one for group @ auth.
 
 ## How It Works
 

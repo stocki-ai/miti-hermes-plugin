@@ -30,6 +30,11 @@ optional_env:
     prompt: "Miti API Base URL (optional)"
     password: false
 
+  - name: MITI_OWNER_USER_ID
+    description: "Optional override for group @ Gateway auth; if unset, uses sole miti-approved.json entry"
+    prompt: "Owner user ID for group @ (optional)"
+    password: false
+
   - name: MITI_ALLOWED_USERS
     description: "Comma-separated Miti user IDs allowed to chat with the bot; empty = allow all"
     prompt: "Allowed user IDs (comma-separated, or empty)"

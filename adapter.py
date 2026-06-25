@@ -22,8 +22,9 @@ Required:
 
 Optional:
   MITI_API_BASE_URL    API base URL (default: https://www.miti.chat/chat)
-  MITI_ALLOWED_USERS   Comma-separated Miti user IDs; empty = allow all
-  MITI_ALLOW_ALL_USERS "true" to disable allowlist (dev only)
+  MITI_OWNER_USER_ID   Optional override for group @ Gateway auth (auto from pairing if unset)
+  MITI_ALLOWED_USERS   Comma-separated Miti user IDs; empty = allow all (plugin layer)
+  MITI_ALLOW_ALL_USERS "true" to skip Hermes pairing for all Miti traffic (dev)
   MITI_HOME_CHANNEL    Default user ID for cron / notification delivery
 """
 
@@ -158,6 +159,12 @@ class MitiAdapter(BasePlatformAdapter):
         allow_all_raw = os.getenv("MITI_ALLOW_ALL_USERS", "").lower()
         self._allow_all: bool = allow_all_raw in {"1", "true", "yes"}
 
+        self._owner_user_id_config: str = (
+            os.getenv("MITI_OWNER_USER_ID") or extra.get("owner_user_id", "")
+        ).strip()
+        self._group_auth_user_id: str = ""
+        self._group_auth_source: str = ""
+
         # Runtime state
         self._miti_agent: Any = None
         self._gateway_task: Optional[asyncio.Task] = None
@@ -175,6 +182,17 @@ class MitiAdapter(BasePlatformAdapter):
         if self._allow_all or not self._allowed_users:
             return True
         return user_id in self._allowed_users
+
+    def _resolve_group_auth_user_id(self) -> str:
+        """Owner/paired user for group @ Gateway auth (env or auto from pairing file)."""
+        if self._group_auth_user_id:
+            return self._group_auth_user_id
+        from .adapter_group_auth import resolve_group_auth_user_id
+
+        uid, source = resolve_group_auth_user_id(self._owner_user_id_config)
+        self._group_auth_user_id = uid
+        self._group_auth_source = source
+        return uid
 
     # ── Connection lifecycle ───────────────────────────────────────────────
 
@@ -221,6 +239,18 @@ class MitiAdapter(BasePlatformAdapter):
             self.app_id,
             self.api_base_url or "<sdk-default>",
         )
+        group_auth = self._resolve_group_auth_user_id()
+        if group_auth:
+            logger.info(
+                "miti-platform: group @ auth user=%s (from %s)",
+                group_auth,
+                self._group_auth_source,
+            )
+        elif not self._allow_all:
+            logger.warning(
+                "miti-platform: no group @ auth user (set MITI_OWNER_USER_ID, "
+                "pair exactly one miti user, or MITI_ALLOW_ALL_USERS=true)"
+            )
         return True
 
     async def _run_agent(self) -> None:
@@ -299,8 +329,20 @@ class MitiAdapter(BasePlatformAdapter):
                 )
                 return
 
+        gateway_user_id = sender_id
+        user_id_alt: Optional[str] = None
+        if chat_type == "group":
+            group_auth = self._resolve_group_auth_user_id()
+            if group_auth:
+                from .adapter_group_auth import group_session_user_ids
+
+                gateway_user_id, user_id_alt = group_session_user_ids(
+                    sender_id, group_auth
+                )
+
         source = self.build_source(
-            user_id=sender_id,
+            user_id=gateway_user_id,
+            user_id_alt=user_id_alt,
             chat_id=chat_id,
             chat_type=chat_type,
         )
@@ -328,6 +370,12 @@ class MitiAdapter(BasePlatformAdapter):
                 log_label,
                 chat_id,
                 log_text,
+            )
+        if chat_type == "group" and user_id_alt:
+            logger.debug(
+                "miti-platform: group @ auth via %s, session user %s",
+                gateway_user_id,
+                user_id_alt,
             )
         await self.handle_message(hermes_event)
 
@@ -363,7 +411,9 @@ class MitiAdapter(BasePlatformAdapter):
             )
             return
 
-        if not self._is_authorized(sender_id):
+        # Group @: skip plugin allowlist when a paired auth user is available.
+        group_auth = self._resolve_group_auth_user_id()
+        if not group_auth and not self._is_authorized(sender_id):
             logger.info(
                 "miti-platform: ignoring group_at from unauthorized user %s", sender_id
             )
