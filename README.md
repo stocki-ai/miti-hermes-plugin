@@ -12,8 +12,10 @@ long-connection. No public webhook endpoint required.
 |---------|--------|
 | Direct messages (single-chat) | ✅ |
 | Group @mention routing | ✅ |
+| Image receive (`image` / `multimodal`, vision) | ✅ |
+| Markdown reply (`stream_full` / 125) | ✅ |
 | Typing indicator | — (Miti has none) |
-| Image / file send | Phase 2 |
+| Image / file send (outbound) | Not supported |
 | Cron / notification delivery | ✅ (via `MITI_HOME_CHANNEL`) |
 | Allowlist by user ID | ✅ |
 
@@ -50,16 +52,20 @@ hermes gateway run
 ## How It Works
 
 ```
-Miti user sends message
-    ↓ WebSocket push (miti-agent-sdk)
-MitiAdapter._on_single_chat / _on_group_at
-    ↓ handle_message()
-Hermes LLM inference
-    ↓ adapter.send(chat_id, reply)
+Miti user sends text or image(s)
+    ↓ WebSocket push (miti-agent-sdk, msg_type text | image | multimodal)
+MitiAdapter._dispatch_inbound
+    ↓ (images) download images[].url → local cache
+    ↓ handle_message(PHOTO + media_urls | TEXT)
+Hermes LLM / vision inference
+    ↓ adapter.send(chat_id, reply)  — stream_full Markdown (125)
 POST /agent/v1/messages/send (miti-agent-sdk)
     ↓
 Miti user receives reply
 ```
+
+Pure image messages (no user text) use default prompts: single image
+`请描述这张图片的内容。`; multiple images `请描述这些图片的内容。`
 
 ### chat_id convention
 
@@ -94,6 +100,13 @@ hermes gateway run
 
 Modifying SDK source under `pai/miti-agent-sdk/src/` takes effect on the
 next `hermes gateway restart` — no reinstall needed.
+
+### Tests
+
+```bash
+cd miti-hermes-plugin
+python -m pytest tests/ --confcutdir=tests -q
+```
 
 ## Version Management & Upgrades
 

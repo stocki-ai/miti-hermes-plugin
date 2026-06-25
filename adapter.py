@@ -32,7 +32,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import re
 import subprocess
 import sys
 from typing import Any, Dict, Optional
@@ -104,6 +103,24 @@ from gateway.config import Platform, PlatformConfig
 from gateway.session import SessionSource
 
 _GROUP_PREFIX = "group:"
+
+
+def _parse_inbound_message(message) -> Optional[tuple[str, bool, list[str], list[str]]]:
+    """Return (text, has_images, image_urls, mime_types) or None if unsupported."""
+    from .adapter_inbound import parse_inbound_message
+
+    payload = parse_inbound_message(message)
+    if payload is None:
+        return None
+    return payload.text, payload.has_images, payload.image_urls, payload.mime_types
+
+
+async def _cache_remote_images(
+    urls: list[str], mime_types: list[str]
+) -> tuple[list[str], list[str]]:
+    from .adapter_inbound import download_images_to_cache
+
+    return await download_images_to_cache(urls, mime_types)
 
 
 # ---------------------------------------------------------------------------
@@ -239,6 +256,76 @@ class MitiAdapter(BasePlatformAdapter):
 
     # ── Inbound event handlers (Miti → Hermes) ────────────────────────────
 
+    async def _dispatch_inbound(
+        self,
+        event,
+        *,
+        chat_id: str,
+        sender_id: str,
+        chat_type: str,
+        log_label: str,
+    ) -> None:
+        """Parse inbound message, download images, forward to Hermes."""
+        parsed = _parse_inbound_message(event.event.message)
+        if not parsed:
+            logger.info(
+                "miti-platform: skipping unsupported %s message (msg_type=%s)",
+                log_label,
+                getattr(event.event.message, "msg_type", "?"),
+            )
+            return
+
+        text, has_images, image_urls, mime_types = parsed
+        msg_id = getattr(event.event.message, "message_id", "") or ""
+        if msg_id:
+            self._ask_msg_by_chat[chat_id] = msg_id
+
+        media_urls: list[str] = []
+        media_types: list[str] = []
+        if has_images:
+            media_urls, media_types = await _cache_remote_images(
+                image_urls, mime_types
+            )
+            if not media_urls:
+                logger.error(
+                    "miti-platform: all image downloads failed for %s from %s",
+                    log_label,
+                    chat_id,
+                )
+                return
+
+        source = self.build_source(
+            user_id=sender_id,
+            chat_id=chat_id,
+            chat_type=chat_type,
+        )
+        hermes_type = MessageType.PHOTO if has_images else MessageType.TEXT
+        hermes_event = HermesMessageEvent(
+            source=source,
+            text=text,
+            message_type=hermes_type,
+            media_urls=media_urls,
+            media_types=media_types,
+            message_id=msg_id or None,
+        )
+        log_text = text[:80] if text else ""
+        if has_images:
+            logger.info(
+                "miti-platform: %s from %s: text=%r images=%d",
+                log_label,
+                chat_id,
+                log_text,
+                len(media_urls),
+            )
+        else:
+            logger.info(
+                "miti-platform: %s from %s: %r",
+                log_label,
+                chat_id,
+                log_text,
+            )
+        await self.handle_message(hermes_event)
+
     async def _on_single_chat(self, event) -> None:
         """Handle im.message.receive (direct message to bot)."""
         sender_id: str = event.event.sender.user_id
@@ -252,34 +339,13 @@ class MitiAdapter(BasePlatformAdapter):
             )
             return
 
-        text = _extract_text(event.event.message)
-        if not text:
-            logger.debug(
-                "miti-platform: skipping non-text single-chat message (msg_type=%s)",
-                event.event.message.msg_type,
-            )
-            return
-
-        chat_id = sender_id
-        msg_id = getattr(event.event.message, "message_id", "") or ""
-        if msg_id:
-            self._ask_msg_by_chat[chat_id] = msg_id
-        source = self.build_source(
-            user_id=sender_id,
-            chat_id=chat_id,
+        await self._dispatch_inbound(
+            event,
+            chat_id=sender_id,
+            sender_id=sender_id,
             chat_type="dm",
+            log_label="single-chat message",
         )
-        hermes_event = HermesMessageEvent(
-            source=source,
-            text=text,
-            message_type=MessageType.TEXT,
-        )
-        logger.info(
-            "miti-platform: single-chat message from %s: %r",
-            sender_id,
-            text[:80],
-        )
-        await self.handle_message(hermes_event)
 
     async def _on_group_at(self, event) -> None:
         """Handle im.message.group_at (group @mention of bot)."""
@@ -298,35 +364,13 @@ class MitiAdapter(BasePlatformAdapter):
             )
             return
 
-        text = _extract_text(event.event.message)
-        if not text:
-            logger.debug(
-                "miti-platform: skipping non-text group_at message (msg_type=%s)",
-                event.event.message.msg_type,
-            )
-            return
-
-        chat_id = f"{_GROUP_PREFIX}{group_id}"
-        msg_id = getattr(event.event.message, "message_id", "") or ""
-        if msg_id:
-            self._ask_msg_by_chat[chat_id] = msg_id
-        source = self.build_source(
-            user_id=sender_id,
-            chat_id=chat_id,
+        await self._dispatch_inbound(
+            event,
+            chat_id=f"{_GROUP_PREFIX}{group_id}",
+            sender_id=sender_id,
             chat_type="group",
+            log_label="group_at message",
         )
-        hermes_event = HermesMessageEvent(
-            source=source,
-            text=text,
-            message_type=MessageType.TEXT,
-        )
-        logger.info(
-            "miti-platform: group_at in %s from %s: %r",
-            group_id,
-            sender_id,
-            text[:80],
-        )
-        await self.handle_message(hermes_event)
 
     # ── Outbound (Hermes → Miti) ──────────────────────────────────────────
 
@@ -405,33 +449,7 @@ class MitiAdapter(BasePlatformAdapter):
 
 
 # ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _extract_text(message) -> str:
-    """Extract plain text from a Miti EventMessage.
-
-    For ``text`` messages: ``content["text"]``.
-    For ``at_text`` messages: strip the @bot mention prefix and return the rest.
-    Other types (image, audio, …) are not yet supported — returns empty string.
-    """
-    msg_type: str = getattr(message, "msg_type", "")
-    content: dict = getattr(message, "content", {}) or {}
-
-    if msg_type == "text":
-        return content.get("text", "").strip()
-
-    if msg_type == "at_text":
-        # at_text content: {"text": "@BotName actual message", "atUserList": [...]}
-        raw = content.get("text", "")
-        text = re.sub(r"^(@\S+\s*)+", "", raw).strip()
-        return text
-
-    return ""
-
-
-# ---------------------------------------------------------------------------
-# Interactive setup wizard
+# Helpers (legacy — prefer adapter_inbound.parse_inbound_message)
 # ---------------------------------------------------------------------------
 
 def interactive_setup() -> None:
@@ -510,8 +528,9 @@ def register(ctx) -> None:
         emoji="💬",
         platform_hint=(
             "You are chatting via Miti IM. Use Markdown for formatting — "
-            "replies are rendered in the App. In direct messages, reply "
-            "directly to the user. In group chats, you were @mentioned; "
-            "reply to the group. Keep responses concise and natural."
+            "replies are rendered in the App. Users may send images; you "
+            "can see them via vision. In direct messages, reply directly to "
+            "the user. In group chats, you were @mentioned; reply to the "
+            "group. Keep responses concise and natural."
         ),
     )
