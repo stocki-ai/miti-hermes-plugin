@@ -20,9 +20,11 @@ long-connection. No public webhook endpoint required.
 ## Installation
 
 ```bash
-hermes plugins install /path/to/miti-hermes-plugin
-# or once published to a Git repo:
-# hermes plugins install github.com/yourorg/miti-hermes-plugin
+# From a Git repo (production):
+hermes plugins install github.com/yourorg/miti-hermes-plugin
+
+# From local source (copies into ~/.hermes/plugins/ — bare paths are not accepted):
+hermes plugins install "file:///path/to/miti-hermes-plugin"
 ```
 
 `miti-agent-sdk` is installed automatically from PyPI on first gateway start.
@@ -73,10 +75,14 @@ without reinstalling anything:
 
 ```bash
 # 1. Install SDK from local source into Hermes' Python environment
-pip install -e /path/to/pai/miti-agent-sdk
+~/.hermes/hermes-agent/venv/bin/python -m pip install -e /path/to/pai/miti-agent-sdk
 
-# 2. Install plugin
-hermes plugins install /path/to/pai/miti-hermes-plugin
+# 2. Symlink plugin (recommended — edits in pai/ take effect after gateway restart)
+ln -sf /path/to/pai/miti-hermes-plugin ~/.hermes/plugins/miti-platform
+hermes plugins enable miti-platform
+
+# Alternative: copy install via file:// (edits in pai/ do NOT sync automatically)
+# hermes plugins install "file:///path/to/pai/miti-hermes-plugin"
 
 # 3. Point at local appserver
 export MITI_APP_ID="your_app_id"

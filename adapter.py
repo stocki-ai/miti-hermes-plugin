@@ -35,7 +35,7 @@ import os
 import re
 import subprocess
 import sys
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +144,8 @@ class MitiAdapter(BasePlatformAdapter):
         # Runtime state
         self._miti_agent: Any = None
         self._gateway_task: Optional[asyncio.Task] = None
+        # chat_id → last inbound message_id (for stream_full ask_msg_id)
+        self._ask_msg_by_chat: dict[str, str] = {}
 
     @property
     def name(self) -> str:
@@ -259,6 +261,9 @@ class MitiAdapter(BasePlatformAdapter):
             return
 
         chat_id = sender_id
+        msg_id = getattr(event.event.message, "message_id", "") or ""
+        if msg_id:
+            self._ask_msg_by_chat[chat_id] = msg_id
         source = self.build_source(
             user_id=sender_id,
             chat_id=chat_id,
@@ -274,7 +279,7 @@ class MitiAdapter(BasePlatformAdapter):
             sender_id,
             text[:80],
         )
-        self.handle_message(hermes_event)
+        await self.handle_message(hermes_event)
 
     async def _on_group_at(self, event) -> None:
         """Handle im.message.group_at (group @mention of bot)."""
@@ -302,6 +307,9 @@ class MitiAdapter(BasePlatformAdapter):
             return
 
         chat_id = f"{_GROUP_PREFIX}{group_id}"
+        msg_id = getattr(event.event.message, "message_id", "") or ""
+        if msg_id:
+            self._ask_msg_by_chat[chat_id] = msg_id
         source = self.build_source(
             user_id=sender_id,
             chat_id=chat_id,
@@ -318,19 +326,18 @@ class MitiAdapter(BasePlatformAdapter):
             sender_id,
             text[:80],
         )
-        self.handle_message(hermes_event)
+        await self.handle_message(hermes_event)
 
     # ── Outbound (Hermes → Miti) ──────────────────────────────────────────
 
     async def send(
         self,
         chat_id: str,
-        text: str,
-        *,
-        source: Optional[SessionSource] = None,
-        **kwargs,
+        content: str,
+        reply_to: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> SendResult:
-        """Send a text reply back to Miti."""
+        """Send a Markdown reply back to Miti as stream_full (contentType 125)."""
         if not self._miti_agent:
             logger.error("miti-platform: send() called before connect()")
             return SendResult(success=False)
@@ -339,24 +346,37 @@ class MitiAdapter(BasePlatformAdapter):
             return SendResult(success=False)
 
         try:
+            from miti_agent_sdk.stream import build_stream_full_markdown
+
+            ask_msg_id = (
+                (metadata or {}).get("ask_msg_id")
+                or reply_to
+                or self._ask_msg_by_chat.get(chat_id, "")
+            )
+            payload = build_stream_full_markdown(content, ask_msg_id)
+
             if chat_id.startswith(_GROUP_PREFIX):
                 group_id = chat_id[len(_GROUP_PREFIX):]
                 await self._miti_agent.send_message(
                     to_group_id=group_id,
-                    msg_type="text",
-                    content={"text": text},
+                    msg_type="stream_full",
+                    content=payload,
                 )
                 logger.debug(
-                    "miti-platform: sent to group %s: %r", group_id, text[:80]
+                    "miti-platform: sent stream_full to group %s: %r",
+                    group_id,
+                    content[:80],
                 )
             else:
                 await self._miti_agent.send_message(
                     to_user_id=chat_id,
-                    msg_type="text",
-                    content={"text": text},
+                    msg_type="stream_full",
+                    content=payload,
                 )
                 logger.debug(
-                    "miti-platform: sent to user %s: %r", chat_id, text[:80]
+                    "miti-platform: sent stream_full to user %s: %r",
+                    chat_id,
+                    content[:80],
                 )
             return SendResult(success=True)
         except Exception as exc:
@@ -420,7 +440,7 @@ def interactive_setup() -> None:
 
     print("\n  Miti Agent Setup")
     print("  ─────────────────────────────────────────────────────────")
-    print("  1. Open the Miti app → Discovery page → top-left menu")
+    print("  1. Open the Miti app → Discovery page → top-right menu")
     print('  2. Tap "连接智能体" (Connect Agent) to create a new agent app')
     print("  3. Copy the App ID and App Secret shown after creation")
     print("     (Secret can be viewed again anytime on the detail page)")
@@ -453,6 +473,23 @@ def interactive_setup() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Configuration status
+# ---------------------------------------------------------------------------
+
+def is_connected(config) -> bool:
+    """Return True when Miti credentials are configured.
+
+    This is intentionally separate from ``check_requirements()`` so
+    ``hermes gateway setup`` can show "configured" based on saved credentials
+    even when the SDK has not been installed into the Hermes venv yet.
+    """
+    extra = getattr(config, "extra", {}) or {}
+    app_id = (os.getenv("MITI_APP_ID") or extra.get("app_id", "")).strip()
+    app_secret = (os.getenv("MITI_APP_SECRET") or extra.get("app_secret", "")).strip()
+    return bool(app_id and app_secret)
+
+
+# ---------------------------------------------------------------------------
 # Plugin entry point
 # ---------------------------------------------------------------------------
 
@@ -463,6 +500,7 @@ def register(ctx) -> None:
         label="Miti",
         adapter_factory=lambda cfg: MitiAdapter(cfg),
         check_fn=check_requirements,
+        is_connected=is_connected,
         required_env=["MITI_APP_ID", "MITI_APP_SECRET"],
         allowed_users_env="MITI_ALLOWED_USERS",
         allow_all_env="MITI_ALLOW_ALL_USERS",
@@ -471,9 +509,9 @@ def register(ctx) -> None:
         setup_fn=interactive_setup,
         emoji="💬",
         platform_hint=(
-            "You are chatting via Miti IM. Use plain text — Miti does not render "
-            "markdown. In direct messages, reply directly to the user. "
-            "In group chats, you were @mentioned; reply to the group. "
-            "Keep responses concise and natural."
+            "You are chatting via Miti IM. Use Markdown for formatting — "
+            "replies are rendered in the App. In direct messages, reply "
+            "directly to the user. In group chats, you were @mentioned; "
+            "reply to the group. Keep responses concise and natural."
         ),
     )
