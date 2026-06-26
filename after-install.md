@@ -1,5 +1,7 @@
 # Miti Platform Plugin — Installation Complete
 
+Source: [github.com/stocki-ai/miti-hermes-plugin](https://github.com/stocki-ai/miti-hermes-plugin)
+
 ## Dependencies
 
 This plugin requires **miti-agent-sdk**. It is installed automatically from
@@ -56,6 +58,13 @@ hermes gateway run
 **Environment file (if not using `gateway setup`):** edit Hermes `.env` — macOS/Linux `~/.hermes/.env`, Windows `%LOCALAPPDATA%\hermes\.env` (`hermes config env-path`).
 
 Send a direct message to your bot in Miti — Hermes will respond.
+
+### Upgrade plugin
+
+```bash
+hermes plugins update miti-platform
+hermes gateway restart
+```
 
 ---
 
