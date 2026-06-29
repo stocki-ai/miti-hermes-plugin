@@ -3,7 +3,7 @@
 Hermes Agent plugin that connects to **Miti IM** via an outbound WebSocket
 long-connection. No public webhook endpoint required.
 
-- Plugin version: `0.1.0`
+- Plugin version: `0.1.1`
 - Requires: [`miti-agent-sdk>=0.1.0`](https://pypi.org/project/miti-agent-sdk/)
 
 ## Features
