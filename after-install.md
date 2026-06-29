@@ -2,11 +2,31 @@
 
 ## Dependencies
 
-This plugin requires **miti-agent-sdk**. It will be installed automatically from
-PyPI the first time you run the gateway. To install it now:
+This plugin requires **miti-agent-sdk**. It is installed automatically from
+PyPI the first time you run the gateway.
+
+If the Hermes Python venv has no `pip` (seen on some **Windows** installs),
+the plugin bootstraps pip via `ensurepip` before installing the SDK. You can
+also install manually:
 
 ```bash
-pip install miti-agent-sdk
+# macOS / Linux
+~/.hermes/hermes-agent/venv/bin/python -m ensurepip --upgrade
+~/.hermes/hermes-agent/venv/bin/python -m pip install miti-agent-sdk
+
+# Windows PowerShell
+$py = "$env:LOCALAPPDATA\hermes\hermes-agent\venv\Scripts\python.exe"
+& $py -m ensurepip --upgrade
+& $py -m pip install miti-agent-sdk
+```
+
+## Enable the plugin
+
+Hermes plugins are **opt-in** — install does not load the plugin until it is enabled.
+
+```bash
+# Skip this if you installed with: hermes plugins install stocki-ai/miti-hermes-plugin --enable
+hermes plugins enable miti-platform
 ```
 
 ## Next Step: Configure Your Agent
@@ -32,6 +52,8 @@ Select **Miti** and enter:
 ```bash
 hermes gateway run
 ```
+
+**Environment file (if not using `gateway setup`):** edit Hermes `.env` — macOS/Linux `~/.hermes/.env`, Windows `%LOCALAPPDATA%\hermes\.env` (`hermes config env-path`).
 
 Send a direct message to your bot in Miti — Hermes will respond.
 

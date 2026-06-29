@@ -24,14 +24,48 @@ long-connection. No public webhook endpoint required.
 ## Installation
 
 ```bash
-# From a Git repo (production):
-hermes plugins install github.com/yourorg/miti-hermes-plugin
+# From a Git repo (production) — use owner/repo shorthand, not github.com/owner/repo:
+hermes plugins install stocki-ai/miti-hermes-plugin --enable
+# Or full URL: hermes plugins install https://github.com/stocki-ai/miti-hermes-plugin.git --enable
+# If installed without --enable: hermes plugins enable miti-platform
 
 # From local source (copies into ~/.hermes/plugins/ — bare paths are not accepted):
-hermes plugins install "file:///path/to/miti-hermes-plugin"
+hermes plugins install "file:///path/to/miti-hermes-plugin" --enable
 ```
 
-`miti-agent-sdk` is installed automatically from PyPI on first gateway start.
+`miti-agent-sdk` is installed automatically from PyPI on first gateway start. If the SDK is missing, the plugin runs `python -m pip install miti-agent-sdk>=0.1.0` into the Hermes venv. When `pip` itself is missing (common on **Windows** / uv-created venvs), the plugin bootstraps it first via `python -m ensurepip --upgrade --default-pip` before installing the SDK.
+
+## Troubleshooting
+
+### `No module named pip` / Miti never connects
+
+**Symptoms:** `errors.log` shows `miti-platform: pip install miti-agent-sdk>=0.1.0 failed: No module named pip`; `gateway.log` may show `No messaging platforms enabled`.
+
+**Fix (automatic):** Update to a plugin build that includes ensurepip bootstrap, then restart:
+
+```bash
+hermes plugins update miti-platform
+hermes gateway restart
+```
+
+**Fix (manual):**
+
+```bash
+# macOS / Linux
+~/.hermes/hermes-agent/venv/bin/python -m ensurepip --upgrade
+~/.hermes/hermes-agent/venv/bin/python -m pip install "miti-agent-sdk>=0.1.0"
+hermes gateway restart
+```
+
+```powershell
+# Windows
+$py = "$env:LOCALAPPDATA\hermes\hermes-agent\venv\Scripts\python.exe"
+& $py -m ensurepip --upgrade
+& $py -m pip install "miti-agent-sdk>=0.1.0"
+hermes gateway restart
+```
+
+Expect `✓ miti connected` in `gateway.log` after a successful fix.
 
 ## Setup
 
@@ -41,6 +75,15 @@ hermes gateway run
 ```
 
 ## Configuration
+
+Hermes reads Miti variables from its **`.env` file** (not the shell profile):
+
+| System | Default `.env` path |
+|--------|---------------------|
+| macOS / Linux | `~/.hermes/.env` |
+| Windows | `%LOCALAPPDATA%\hermes\.env` |
+
+Run `hermes config env-path` to print the path on your machine. After editing, `hermes gateway restart`.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
