@@ -73,3 +73,24 @@ Point at a local appserver:
 export MITI_API_BASE_URL="http://localhost:10006/chat"
 hermes gateway run
 ```
+
+---
+
+## Check version
+
+```bash
+hermes plugins list    # Version column = plugin.yaml version
+```
+
+Plugin internal name is **`miti-platform`**. SDK version: `pip show miti-agent-sdk` (in Hermes venv).
+
+## Uninstall
+
+```bash
+hermes gateway stop
+hermes plugins remove miti-platform
+hermes gateway restart
+```
+
+On Windows, if `remove` fails with `WinError 5`, stop the gateway and delete
+`%LOCALAPPDATA%\hermes\plugins\miti-platform\` manually (see README).

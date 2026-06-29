@@ -229,6 +229,44 @@ hermes gateway restart
 **Check currently installed versions:**
 
 ```bash
-pip show miti-agent-sdk           # SDK version
-hermes plugins list               # plugin version (from plugin.yaml)
+hermes plugins list                    # plugin version (plugin.yaml → version)
+hermes plugins list --user             # user-installed plugins only
+hermes plugins list --json             # machine-readable
+
+# macOS / Linux
+grep '^version:' ~/.hermes/plugins/miti-platform/plugin.yaml
+~/.hermes/hermes-agent/venv/bin/pip show miti-agent-sdk
+
+# Windows PowerShell
+Get-Content "$env:LOCALAPPDATA\hermes\plugins\miti-platform\plugin.yaml" | Select-String "version"
+& "$env:LOCALAPPDATA\hermes\hermes-agent\venv\Scripts\python.exe" -m pip show miti-agent-sdk
 ```
+
+> Use **`miti-platform`** (not `miti-hermes-plugin`) for `update`, `remove`, and `enable`.
+
+### Uninstall
+
+```bash
+hermes gateway stop
+hermes plugins remove miti-platform
+# aliases: rm, uninstall
+hermes gateway restart
+```
+
+**Disable without deleting:**
+
+```bash
+hermes plugins disable miti-platform
+hermes gateway restart
+```
+
+**Windows `WinError 5` on remove:** stop the gateway first. If it still fails, delete the plugin directory manually after clearing read-only attributes:
+
+```powershell
+hermes gateway stop
+$plugin = "$env:LOCALAPPDATA\hermes\plugins\miti-platform"
+cmd /c "attrib -R `"$plugin\*`" /S /D"
+Remove-Item -LiteralPath $plugin -Recurse -Force
+```
+
+Optional cleanup: remove `MITI_*` from Hermes `.env`; `pip uninstall miti-agent-sdk` in the Hermes venv.
