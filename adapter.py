@@ -44,6 +44,57 @@ logger = logging.getLogger(__name__)
 _SDK_REQUIRE = "miti-agent-sdk>=0.1.0"
 
 
+def _pip_is_available() -> bool:
+    try:
+        probe = subprocess.run(
+            [sys.executable, "-m", "pip", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            stdin=subprocess.DEVNULL,
+        )
+        return probe.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
+
+
+def _bootstrap_pip() -> bool:
+    """Ensure ``python -m pip`` works in the active Hermes venv.
+
+    Some Hermes installs (notably Windows / uv-created venvs) ship without
+    pip. Mirrors the ensurepip ladder in Hermes core (``lazy_deps``).
+    """
+    if _pip_is_available():
+        return True
+
+    logger.info("miti-platform: pip not found in venv, bootstrapping via ensurepip…")
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "ensurepip", "--upgrade", "--default-pip"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            stdin=subprocess.DEVNULL,
+        )
+    except subprocess.TimeoutExpired:
+        logger.error("miti-platform: ensurepip timed out")
+        return False
+
+    if result.returncode != 0:
+        logger.error(
+            "miti-platform: ensurepip failed:\n%s",
+            result.stderr or result.stdout,
+        )
+        return False
+
+    if not _pip_is_available():
+        logger.error("miti-platform: pip still unavailable after ensurepip")
+        return False
+
+    logger.info("miti-platform: pip bootstrapped successfully")
+    return True
+
+
 def check_requirements() -> bool:
     """Return True when a compatible miti-agent-sdk is importable.
 
@@ -62,6 +113,9 @@ def check_requirements() -> bool:
         pass
 
     logger.info("miti-platform: miti-agent-sdk not found, attempting pip install…")
+    if not _bootstrap_pip():
+        return False
+
     result = subprocess.run(
         [sys.executable, "-m", "pip", "install", _SDK_REQUIRE],
         capture_output=True,
