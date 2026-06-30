@@ -3,8 +3,9 @@
 Hermes Agent plugin that connects to **Miti IM** via an outbound WebSocket
 long-connection. No public webhook endpoint required.
 
-- Plugin version: `0.1.1`
+- Plugin version: `0.1.2`
 - Requires: [`miti-agent-sdk>=0.1.0`](https://pypi.org/project/miti-agent-sdk/)
+- Compatible with: **Hermes Agent ≥ 0.17** (uses `connect(is_reconnect=…)` reconnect watcher)
 
 ## Features
 
@@ -36,6 +37,21 @@ hermes plugins install "file:///path/to/miti-hermes-plugin" --enable
 `miti-agent-sdk` is installed automatically from PyPI on first gateway start. If the SDK is missing, the plugin runs `python -m pip install miti-agent-sdk>=0.1.0` into the Hermes venv. When `pip` itself is missing (common on **Windows** / uv-created venvs), the plugin bootstraps it first via `python -m ensurepip --upgrade --default-pip` before installing the SDK.
 
 ## Troubleshooting
+
+### `unexpected keyword argument 'is_reconnect'` (Hermes 0.17+)
+
+**Symptoms:** `gateway.log` shows `MitiAdapter.connect() got an unexpected keyword argument 'is_reconnect'`; Miti never connects; gateway enters reconnect backoff loop.
+
+**Cause:** Hermes 0.17+ passes `is_reconnect` to platform adapters. Plugin **≤ 0.1.1** used the old `connect()` signature.
+
+**Fix:**
+
+```bash
+hermes plugins update miti-platform
+hermes gateway restart
+```
+
+Confirm `hermes plugins list` shows **0.1.2+**, then expect `✓ miti connected` in `gateway.log`.
 
 ### `No module named pip` / Miti never connects
 

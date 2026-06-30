@@ -250,8 +250,15 @@ class MitiAdapter(BasePlatformAdapter):
 
     # ── Connection lifecycle ───────────────────────────────────────────────
 
-    async def connect(self) -> bool:
-        """Validate config, create MitiAgent, and start the WebSocket task."""
+    async def connect(self, *, is_reconnect: bool = False) -> bool:
+        """Validate config, create MitiAgent, and start the WebSocket task.
+
+        Hermes 0.17+ passes ``is_reconnect`` on gateway watcher retries.
+        Miti has no server-side update queue — the flag is accepted and ignored.
+        """
+        if self._gateway_task is not None:
+            await self.disconnect()
+
         if not self.app_id or not self.app_secret:
             logger.error(
                 "miti-platform: MITI_APP_ID and MITI_APP_SECRET must be set"
@@ -305,6 +312,9 @@ class MitiAdapter(BasePlatformAdapter):
                 "miti-platform: no group @ auth user (set MITI_OWNER_USER_ID, "
                 "pair exactly one miti user, or MITI_ALLOW_ALL_USERS=true)"
             )
+        self._mark_connected()
+        if is_reconnect:
+            logger.info("miti-platform: reconnected")
         return True
 
     async def _run_agent(self) -> None:
@@ -315,6 +325,8 @@ class MitiAdapter(BasePlatformAdapter):
             logger.info("miti-platform: gateway task cancelled")
         except Exception as exc:
             logger.error("miti-platform: gateway task crashed: %s", exc, exc_info=True)
+            self._set_fatal_error("gateway_crashed", str(exc), retryable=True)
+            await self._notify_fatal_error()
 
     async def disconnect(self) -> None:
         """Stop the WebSocket task and clean up SDK resources.
@@ -336,6 +348,9 @@ class MitiAdapter(BasePlatformAdapter):
                 await self._miti_agent.close()
             except Exception as exc:
                 logger.warning("miti-platform: error during agent close: %s", exc)
+        self._gateway_task = None
+        self._miti_agent = None
+        self._mark_disconnected()
         logger.info("miti-platform: disconnected")
 
     # ── Inbound event handlers (Miti → Hermes) ────────────────────────────
