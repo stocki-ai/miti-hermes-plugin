@@ -44,8 +44,8 @@ Select **Miti** and enter:
 ### How to get App ID and App Secret
 
 1. Open the **Miti** app
-2. Go to the **Discovery** page (发现)
-3. Tap the **top-right menu** → **连接智能体** (Connect Agent)
+2. Go to **My** → **Settings** → **Agent Management**（我的 → 设置 → 智能体管理）
+3. Tap **连接智能体** (Connect Agent)
 4. Fill in the agent name and tap **Create**
 5. Copy the **App ID** and **App Secret** from the detail page
 

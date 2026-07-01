@@ -17,7 +17,7 @@ chat_id convention
 Configuration (via hermes gateway setup or environment variables)
 -----------------------------------------------------------------
 Required:
-  MITI_APP_ID        Agent App ID (create at Miti Discovery page → 连接智能体)
+  MITI_APP_ID        Agent App ID (create at Miti 我的 / 设置 → 智能体管理 → 连接智能体)
   MITI_APP_SECRET    Agent App Secret (view on agent detail page at any time)
 
 Optional:
@@ -582,7 +582,7 @@ def interactive_setup() -> None:
 
     print("\n  Miti Agent Setup")
     print("  ─────────────────────────────────────────────────────────")
-    print("  1. Open the Miti app → Discovery page → top-right menu")
+    print("  1. Open the Miti app → My → Settings → Agent Management")
     print('  2. Tap "连接智能体" (Connect Agent) to create a new agent app')
     print("  3. Copy the App ID and App Secret shown after creation")
     print("     (Secret can be viewed again anytime on the detail page)")

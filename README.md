@@ -103,7 +103,7 @@ Run `hermes config env-path` to print the path on your machine. After editing, `
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `MITI_APP_ID` | ✅ | Agent App ID (from Miti → 连接智能体) |
+| `MITI_APP_ID` | ✅ | Agent App ID (from Miti → 我的 / 设置 → 智能体管理 → 连接智能体) |
 | `MITI_APP_SECRET` | ✅ | Agent App Secret |
 | `MITI_API_BASE_URL` | — | API base URL (default: `https://www.miti.chat/chat`) |
 | `MITI_OWNER_USER_ID` | — | Optional override for group @ Gateway auth. If unset, the plugin uses the **only** user in `~/.hermes/pairing/miti-approved.json`. |
